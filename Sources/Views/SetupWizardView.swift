@@ -39,7 +39,7 @@ struct SetupWizardView: View {
             // Navigation buttons
             navigationButtons
         }
-        .frame(width: 480, height: 420)
+        .frame(width: 480, height: 500)
     }
 
     // MARK: - Header
