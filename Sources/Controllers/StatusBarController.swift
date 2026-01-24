@@ -40,7 +40,11 @@ final class StatusBarController {
         let popover = NSPopover()
         popover.contentSize = NSSize(width: 300, height: 200)
         popover.behavior = .transient
-        popover.contentViewController = NSHostingController(
+        self.popover = popover
+    }
+
+    private func updatePopoverContent() {
+        popover?.contentViewController = NSHostingController(
             rootView: StatusBarPopupView(
                 trainService: trainService,
                 settingsManager: settingsManager,
@@ -52,7 +56,6 @@ final class StatusBarController {
                 }
             )
         )
-        self.popover = popover
     }
 
     @objc private func togglePopover() {
@@ -67,6 +70,9 @@ final class StatusBarController {
 
     private func showPopover(_ sender: NSView) {
         guard let popover = popover else { return }
+
+        // Update popover content with latest data before showing
+        updatePopoverContent()
 
         popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
 
