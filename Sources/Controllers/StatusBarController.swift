@@ -195,9 +195,14 @@ final class StatusBarController {
             settingsManager: settingsManager,
             onComplete: { [weak self] in
                 self?.closeWizard()
-                // Refresh trains after setup
+                // Update route and refresh trains after setup
                 Task { @MainActor in
-                    await self?.trainService.refreshTrains()
+                    guard let self = self else { return }
+                    await self.trainService.setRoute(self.settingsManager.settings.route)
+                    self.notificationManager.startMonitoring(
+                        trainService: self.trainService,
+                        settings: self.settingsManager.settings
+                    )
                 }
             }
         )
