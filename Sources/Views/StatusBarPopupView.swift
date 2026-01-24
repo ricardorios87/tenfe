@@ -1,10 +1,11 @@
 import SwiftUI
 
+@MainActor
 struct StatusBarPopupView: View {
-    @ObservedObject var trainService: TrainService
-    @ObservedObject var settingsManager: SettingsManager
-    let onSettingsClick: () -> Void
-    let onQuitClick: () -> Void
+    let trainService: TrainService
+    let settingsManager: SettingsManager
+    let onSettingsClick: @MainActor () -> Void
+    let onQuitClick: @MainActor () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -76,7 +77,9 @@ struct StatusBarPopupView: View {
                 Spacer()
 
                 Button("Refresh") {
-                    trainService.refreshTrains()
+                    Task { @MainActor in
+                        await trainService.refreshTrains()
+                    }
                 }
                 .buttonStyle(.plain)
 
@@ -94,6 +97,7 @@ struct StatusBarPopupView: View {
     }
 }
 
+@MainActor
 struct TrainRowView: View {
     let train: Train
 

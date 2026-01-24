@@ -1,6 +1,6 @@
 import Foundation
 
-struct AppSettings: Codable {
+struct AppSettings: Codable, Sendable {
     var route: Route
     var leaveTime: Date
     var walkTimeMinutes: Int

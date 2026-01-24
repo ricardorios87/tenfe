@@ -1,8 +1,10 @@
 import Foundation
-import Combine
+import Observation
 
-class SettingsManager: ObservableObject {
-    @Published var settings: AppSettings
+@Observable
+@MainActor
+final class SettingsManager {
+    var settings: AppSettings
 
     private let userDefaults = UserDefaults.standard
     private let settingsKey = "TenfeAppSettings"
@@ -24,14 +26,10 @@ class SettingsManager: ObservableObject {
         if let encoded = try? JSONEncoder().encode(settings) {
             userDefaults.set(encoded, forKey: settingsKey)
         }
-
-        // Notify observers that settings have changed
-        objectWillChange.send()
     }
 
     func resetToDefaults() {
         settings = AppSettings()
         userDefaults.removeObject(forKey: settingsKey)
-        objectWillChange.send()
     }
 }

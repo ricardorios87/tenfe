@@ -1,8 +1,8 @@
 import Foundation
 
 // Renfe API Service for fetching real train data
-class RenfeAPI {
-    static let shared = RenfeAPI()
+actor RenfeAPI {
+    nonisolated static let shared = RenfeAPI()
 
     // Renfe Cercanías schedule endpoint
     private let scheduleURL = "https://horarios.renfe.com/cer/hjcer310.jsp"
@@ -12,27 +12,23 @@ class RenfeAPI {
 
     func fetchTrainsBetweenStations(
         from originName: String,
-        to destinationName: String,
-        completion: @escaping (Result<[Train], Error>) -> Void
-    ) {
+        to destinationName: String
+    ) async throws -> [Train] {
         // Get Renfe station codes
         guard let originCode = RenfeAPI.getRenfeStationCode(for: originName) else {
-            completion(.failure(APIError.stationNotFound))
-            return
+            throw APIError.stationNotFound
         }
 
         guard let destinationCode = RenfeAPI.getRenfeStationCode(for: destinationName) else {
-            completion(.failure(APIError.stationNotFound))
-            return
+            throw APIError.stationNotFound
         }
 
         // Fetch real schedule from Renfe
-        fetchRealSchedule(
+        return try await fetchRealSchedule(
             nucleo: madridNucleoId,
             origin: originCode,
             destination: destinationCode,
-            destinationName: destinationName,
-            completion: completion
+            destinationName: destinationName
         )
     }
 
@@ -40,12 +36,10 @@ class RenfeAPI {
         nucleo: String,
         origin: String,
         destination: String,
-        destinationName: String,
-        completion: @escaping (Result<[Train], Error>) -> Void
-    ) {
+        destinationName: String
+    ) async throws -> [Train] {
         guard let url = URL(string: scheduleURL) else {
-            completion(.failure(APIError.invalidURL))
-            return
+            throw APIError.invalidURL
         }
 
         // Format date and time
@@ -80,33 +74,20 @@ class RenfeAPI {
         request.httpBody = bodyString.data(using: .utf8)
         request.timeoutInterval = 15
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            if let error = error {
-                DispatchQueue.main.async {
-                    completion(.failure(error))
-                }
-                return
-            }
+        let (data, _) = try await URLSession.shared.data(for: request)
 
-            guard let data = data,
-                  let html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
-                DispatchQueue.main.async {
-                    completion(.failure(APIError.noData))
-                }
-                return
-            }
+        guard let html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
+            throw APIError.noData
+        }
 
-            // Parse the HTML response
-            let trains = self?.parseScheduleHTML(html, destinationName: destinationName) ?? []
+        // Parse the HTML response
+        let trains = parseScheduleHTML(html, destinationName: destinationName)
 
-            DispatchQueue.main.async {
-                if trains.isEmpty {
-                    completion(.failure(APIError.parseError))
-                } else {
-                    completion(.success(trains))
-                }
-            }
-        }.resume()
+        guard !trains.isEmpty else {
+            throw APIError.parseError
+        }
+
+        return trains
     }
 
     // MARK: - HTML Parsing
@@ -204,7 +185,7 @@ class RenfeAPI {
 
     // MARK: - Error Types
 
-    enum APIError: LocalizedError {
+    enum APIError: LocalizedError, Sendable {
         case invalidURL
         case noData
         case stationNotFound
@@ -233,7 +214,7 @@ class RenfeAPI {
 extension RenfeAPI {
     // Renfe Cercanías station codes for Madrid núcleo
     // These are the official codes used by horarios.renfe.com
-    static let renfeStationCodes: [String: String] = [
+    nonisolated static let renfeStationCodes: [String: String] = [
         "Atocha": "18000",
         "Chamartín": "17000",
         "Nuevos Ministerios": "18002",
@@ -253,7 +234,7 @@ extension RenfeAPI {
     ]
 
     // Lookup station code with case and diacritic-insensitive matching
-    static func getRenfeStationCode(for name: String) -> String? {
+    nonisolated static func getRenfeStationCode(for name: String) -> String? {
         let normalizedName = name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
         return renfeStationCodes.first { key, _ in
             key.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current) == normalizedName
@@ -261,7 +242,7 @@ extension RenfeAPI {
     }
 
     // Keep old method for compatibility
-    static func getStationCode(for name: String) -> Int? {
+    nonisolated static func getStationCode(for name: String) -> Int? {
         guard let code = getRenfeStationCode(for: name) else { return nil }
         return Int(code)
     }

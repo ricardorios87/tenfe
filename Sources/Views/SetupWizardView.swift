@@ -1,8 +1,9 @@
 import SwiftUI
 
+@MainActor
 struct SetupWizardView: View {
-    @ObservedObject var settingsManager: SettingsManager
-    var onComplete: () -> Void
+    let settingsManager: SettingsManager
+    var onComplete: @MainActor () -> Void
 
     @State private var currentStep = 0
     @State private var selectedOrigin: String = "Recoletos"

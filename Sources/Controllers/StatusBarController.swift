@@ -1,17 +1,21 @@
 import SwiftUI
 import AppKit
-import Combine
+import Observation
 
-class StatusBarController: ObservableObject {
+@Observable
+@MainActor
+final class StatusBarController {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var eventMonitor: Any?
     private var settingsWindow: NSWindow?
     private var wizardWindow: NSWindow?
+    private var refreshTask: Task<Void, Never>?
+    private var settingsObserverTask: Task<Void, Never>?
 
-    @Published var trainService = TrainService()
-    @Published var notificationManager = NotificationManager()
-    @Published var settingsManager = SettingsManager()
+    var trainService = TrainService()
+    var notificationManager = NotificationManager()
+    var settingsManager = SettingsManager()
 
     init() {
         setupStatusBar()
@@ -68,7 +72,9 @@ class StatusBarController: ObservableObject {
 
         // Start event monitor to close popover when clicking outside
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            self?.closePopover()
+            Task { @MainActor in
+                self?.closePopover()
+            }
         }
     }
 
@@ -87,8 +93,9 @@ class StatusBarController: ObservableObject {
         let hasCompletedSetup = UserDefaults.standard.bool(forKey: "hasCompletedSetup")
         if !hasCompletedSetup {
             // Delay to ensure the app is fully loaded
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.openWizard()
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(500))
+                self.openWizard()
             }
         }
     }
@@ -149,8 +156,9 @@ class StatusBarController: ObservableObject {
         settingsWindow?.close()
         settingsWindow = nil
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.openWizard()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            self.openWizard()
         }
     }
 
@@ -188,7 +196,9 @@ class StatusBarController: ObservableObject {
             onComplete: { [weak self] in
                 self?.closeWizard()
                 // Refresh trains after setup
-                self?.trainService.refreshTrains()
+                Task { @MainActor in
+                    await self?.trainService.refreshTrains()
+                }
             }
         )
 
@@ -208,30 +218,64 @@ class StatusBarController: ObservableObject {
 
     private func startMonitoring() {
         // Initialize train service with current route
-        trainService.setRoute(settingsManager.settings.route)
+        Task { @MainActor in
+            await trainService.setRoute(settingsManager.settings.route)
 
-        // Start notification monitoring based on settings
-        notificationManager.startMonitoring(
-            trainService: trainService,
-            settings: settingsManager.settings
-        )
-
-        // Refresh trains periodically (every 5 minutes)
-        Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
-            self?.trainService.refreshTrains()
+            // Start notification monitoring based on settings
+            notificationManager.startMonitoring(
+                trainService: trainService,
+                settings: settingsManager.settings
+            )
         }
 
-        // Update train service when settings change
-        settingsManager.$settings
-            .sink { [weak self] newSettings in
-                self?.trainService.setRoute(newSettings.route)
-                self?.notificationManager.startMonitoring(
-                    trainService: self?.trainService ?? TrainService(),
+        // Refresh trains periodically (every 5 minutes)
+        refreshTask = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(300))
+                guard !Task.isCancelled else { break }
+                await trainService.refreshTrains()
+            }
+        }
+
+        // Observe settings changes using AsyncStream
+        settingsObserverTask = Task { @MainActor in
+            for await newSettings in observeSettings() {
+                await trainService.setRoute(newSettings.route)
+                notificationManager.startMonitoring(
+                    trainService: trainService,
                     settings: newSettings
                 )
             }
-            .store(in: &cancellables)
+        }
     }
 
-    private var cancellables = Set<AnyCancellable>()
+    private func observeSettings() -> AsyncStream<AppSettings> {
+        AsyncStream { continuation in
+            let task = Task { @MainActor in
+                var lastSettings = settingsManager.settings
+                continuation.yield(lastSettings)
+
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    let currentSettings = settingsManager.settings
+                    if currentSettings.route.origin != lastSettings.route.origin ||
+                       currentSettings.route.destination != lastSettings.route.destination ||
+                       currentSettings.walkTimeMinutes != lastSettings.walkTimeMinutes ||
+                       currentSettings.enable15MinWarning != lastSettings.enable15MinWarning ||
+                       currentSettings.enableTimeToLeaveAlert != lastSettings.enableTimeToLeaveAlert {
+                        continuation.yield(currentSettings)
+                        lastSettings = currentSettings
+                    }
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
+    nonisolated deinit {
+        // Tasks will be automatically cancelled when deallocated
+    }
 }

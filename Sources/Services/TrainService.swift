@@ -1,52 +1,49 @@
 import Foundation
-import Combine
+import Observation
 
-class TrainService: ObservableObject {
-    @Published var nextTrains: [Train] = []
-    @Published var isLoading = false
-    @Published var errorMessage: String?
+@Observable
+@MainActor
+final class TrainService {
+    var nextTrains: [Train] = []
+    var isLoading = false
+    var errorMessage: String?
 
-    private var cancellables = Set<AnyCancellable>()
     private let renfeAPI = RenfeAPI.shared
-    private var currentRoute: (origin: String, destination: String)?
+    private var currentRoute: Route?
 
     init() {
         // Will be initialized with route from settings
     }
 
-    func refreshTrains() {
+    func refreshTrains() async {
         guard let route = currentRoute else {
             // Use default route if not set
-            refreshTrains(from: "Recoletos", to: "Vicálvaro")
+            await refreshTrains(from: "Recoletos", to: "Vicálvaro")
             return
         }
-        refreshTrains(from: route.origin, to: route.destination)
+        await refreshTrains(from: route.origin, to: route.destination)
     }
 
-    func refreshTrains(from origin: String, to destination: String) {
+    func refreshTrains(from origin: String, to destination: String) async {
+        currentRoute = Route(origin: origin, destination: destination)
         isLoading = true
         errorMessage = nil
-        currentRoute = (origin, destination)
 
-        renfeAPI.fetchTrainsBetweenStations(from: origin, to: destination) { [weak self] result in
-            DispatchQueue.main.async {
-                self?.isLoading = false
-                switch result {
-                case .success(let trains):
-                    self?.nextTrains = trains
-                    self?.errorMessage = nil
-                case .failure(let error):
-                    self?.errorMessage = error.localizedDescription
-                    self?.nextTrains = []
-                }
-            }
+        do {
+            let trains = try await renfeAPI.fetchTrainsBetweenStations(from: origin, to: destination)
+            self.nextTrains = trains
+            self.errorMessage = nil
+        } catch {
+            self.errorMessage = error.localizedDescription
+            self.nextTrains = []
         }
+
+        self.isLoading = false
     }
 
-    func getTrainsForRoute(from origin: String, to destination: String) -> [Train] {
+    func getTrainsForRoute(from origin: String, to destination: String) async -> [Train] {
         // Update current route and refresh
-        currentRoute = (origin, destination)
-        refreshTrains(from: origin, to: destination)
+        await refreshTrains(from: origin, to: destination)
         return nextTrains
     }
 
@@ -56,9 +53,9 @@ class TrainService: ObservableObject {
         }
     }
 
-    func setRoute(_ route: Route) {
-        currentRoute = (route.origin, route.destination)
-        refreshTrains()
+    func setRoute(_ route: Route) async {
+        currentRoute = route
+        await refreshTrains()
     }
 }
 

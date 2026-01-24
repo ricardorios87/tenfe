@@ -1,11 +1,19 @@
 import Foundation
 
-struct Train: Identifiable, Codable {
-    var id = UUID()
+struct Train: Identifiable, Codable, Sendable {
+    let id: UUID
     let departureTime: Date
     let arrivalTime: Date
     let line: String
     let destination: String
+
+    init(id: UUID = UUID(), departureTime: Date, arrivalTime: Date, line: String, destination: String) {
+        self.id = id
+        self.departureTime = departureTime
+        self.arrivalTime = arrivalTime
+        self.line = line
+        self.destination = destination
+    }
 
     var departureTimeString: String {
         let formatter = DateFormatter()
@@ -30,7 +38,7 @@ struct Train: Identifiable, Codable {
     }
 }
 
-struct Route: Codable {
+struct Route: Codable, Sendable {
     var origin: String
     var destination: String
 

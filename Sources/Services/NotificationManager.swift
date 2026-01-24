@@ -1,9 +1,12 @@
 import Foundation
 import UserNotifications
 import AppKit
+import Observation
 
-class NotificationManager: NSObject, ObservableObject {
-    private var notificationTimer: Timer?
+@Observable
+@MainActor
+final class NotificationManager: NSObject {
+    private var monitoringTask: Task<Void, Never>?
     private var hasShown15MinWarning = false
     private var hasShownTimeToLeave = false
     private var lastNotificationDate: Date?
@@ -50,24 +53,26 @@ class NotificationManager: NSObject, ObservableObject {
         }
     }
 
-    func sendTestNotification() {
-        guard notificationsAvailable else {
-            print("Notifications not available - app not running in proper bundle")
-            return
-        }
+    nonisolated func sendTestNotification() {
+        Task { @MainActor in
+            guard notificationsAvailable else {
+                print("Notifications not available - app not running in proper bundle")
+                return
+            }
 
-        let content = UNMutableNotificationContent()
-        content.title = "🚂 Tenfe"
-        content.subtitle = "Test notification"
-        content.body = "Notifications are working correctly!"
-        content.sound = .default
+            let content = UNMutableNotificationContent()
+            content.title = "🚂 Tenfe"
+            content.subtitle = "Test notification"
+            content.body = "Notifications are working correctly!"
+            content.sound = .default
 
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                print("Error sending test notification: \(error)")
-            } else {
-                print("Test notification sent successfully")
+            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error = error {
+                    print("Error sending test notification: \(error)")
+                } else {
+                    print("Test notification sent successfully")
+                }
             }
         }
     }
@@ -76,19 +81,24 @@ class NotificationManager: NSObject, ObservableObject {
         // Reset flags at start of new monitoring session
         resetDailyFlags()
 
-        // Cancel existing timer
-        notificationTimer?.invalidate()
+        // Cancel existing task
+        monitoringTask?.cancel()
 
-        // Check every minute for notification triggers
-        notificationTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            self?.checkAndSendNotifications(trainService: trainService, settings: settings)
+        // Check every minute for notification triggers using structured concurrency
+        monitoringTask = Task { @MainActor in
+            // Check immediately
+            await checkAndSendNotifications(trainService: trainService, settings: settings)
+
+            // Then check every minute
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled else { break }
+                await checkAndSendNotifications(trainService: trainService, settings: settings)
+            }
         }
-
-        // Also check immediately
-        checkAndSendNotifications(trainService: trainService, settings: settings)
     }
 
-    private func checkAndSendNotifications(trainService: TrainService, settings: AppSettings) {
+    private func checkAndSendNotifications(trainService: TrainService, settings: AppSettings) async {
         let now = Date()
 
         // Get today's leave time
@@ -200,7 +210,7 @@ class NotificationManager: NSObject, ObservableObject {
         lastNotificationDate = Date()
     }
 
-    deinit {
-        notificationTimer?.invalidate()
+    nonisolated deinit {
+        // Task will be automatically cancelled when deallocated
     }
 }

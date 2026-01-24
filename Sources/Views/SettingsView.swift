@@ -1,10 +1,11 @@
 import SwiftUI
 
+@MainActor
 struct SettingsView: View {
-    @ObservedObject var settingsManager: SettingsManager
+    let settingsManager: SettingsManager
     var notificationManager: NotificationManager?
-    var onRunWizard: (() -> Void)?
-    var onClose: (() -> Void)?
+    var onRunWizard: (@MainActor () -> Void)?
+    var onClose: (@MainActor () -> Void)?
 
     @State private var selectedOrigin: String = ""
     @State private var selectedDestination: String = ""
