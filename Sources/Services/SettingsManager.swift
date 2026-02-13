@@ -32,4 +32,38 @@ final class SettingsManager {
         settings = AppSettings()
         userDefaults.removeObject(forKey: settingsKey)
     }
+
+    // MARK: - Trip CRUD
+
+    func addTrip(_ trip: Trip) {
+        var updated = settings
+        updated.trips.append(trip)
+        if updated.trips.count == 1 {
+            updated.activeTripId = trip.id
+        }
+        saveSettings(updated)
+    }
+
+    func updateTrip(_ trip: Trip) {
+        var updated = settings
+        if let idx = updated.trips.firstIndex(where: { $0.id == trip.id }) {
+            updated.trips[idx] = trip
+        }
+        saveSettings(updated)
+    }
+
+    func deleteTrip(id: UUID) {
+        var updated = settings
+        updated.trips.removeAll { $0.id == id }
+        if updated.activeTripId == id {
+            updated.activeTripId = updated.trips.first?.id
+        }
+        saveSettings(updated)
+    }
+
+    func setActiveTrip(id: UUID) {
+        var updated = settings
+        updated.activeTripId = id
+        saveSettings(updated)
+    }
 }

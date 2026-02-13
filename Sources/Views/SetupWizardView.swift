@@ -152,7 +152,7 @@ struct SetupWizardView: View {
             }
             .padding(.vertical, 8)
 
-            Text("This is typically your work → home route")
+            Text("Pick your most frequent route")
                 .font(.caption)
                 .foregroundColor(.secondary)
 
@@ -169,7 +169,7 @@ struct SetupWizardView: View {
                 .font(.system(size: 44))
                 .foregroundColor(.accentColor)
 
-            Text("When do you leave work?")
+            Text("When do you head out?")
                 .font(.title3)
                 .fontWeight(.medium)
 
@@ -234,7 +234,7 @@ struct SetupWizardView: View {
 
             if enableNotifications {
                 VStack(alignment: .leading, spacing: 6) {
-                    Label("15 min warning before leave time", systemImage: "checkmark.circle.fill")
+                    Label("15 min warning before departure", systemImage: "checkmark.circle.fill")
                     Label("Alert when it's time to go", systemImage: "checkmark.circle.fill")
                 }
                 .font(.caption)
@@ -320,12 +320,17 @@ struct SetupWizardView: View {
     // MARK: - Actions
 
     private func saveAndComplete() {
+        let trip = Trip(
+            route: Route(origin: selectedOrigin, destination: selectedDestination),
+            leaveTime: leaveTime,
+            walkTimeMinutes: walkTime,
+            enable15MinWarning: enableNotifications,
+            enableTimeToLeaveAlert: enableNotifications
+        )
+
         var newSettings = AppSettings()
-        newSettings.route = Route(origin: selectedOrigin, destination: selectedDestination)
-        newSettings.leaveTime = leaveTime
-        newSettings.walkTimeMinutes = walkTime
-        newSettings.enable15MinWarning = enableNotifications
-        newSettings.enableTimeToLeaveAlert = enableNotifications
+        newSettings.trips = [trip]
+        newSettings.activeTripId = trip.id
 
         settingsManager.saveSettings(newSettings)
 

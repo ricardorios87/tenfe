@@ -4,11 +4,18 @@ import SwiftUI
 struct StatusBarPopupView: View {
     let trainService: TrainService
     let settingsManager: SettingsManager
+    let onTripSelected: @MainActor (UUID) -> Void
     let onSettingsClick: @MainActor () -> Void
     let onQuitClick: @MainActor () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
+            // Trip tabs (only when multiple trips exist)
+            if settingsManager.settings.trips.count > 1 {
+                tripTabStrip
+                Divider()
+            }
+
             // Header
             HStack {
                 Image(systemName: "tram.fill")
@@ -94,6 +101,46 @@ struct StatusBarPopupView: View {
             .background(Color(NSColor.controlBackgroundColor))
         }
         .frame(width: 300)
+    }
+
+    private var tripTabStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(settingsManager.settings.trips) { trip in
+                    TripChipView(
+                        trip: trip,
+                        isActive: trip.id == settingsManager.settings.activeTrip?.id,
+                        onSelect: { onTripSelected(trip.id) }
+                    )
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .background(Color(NSColor.controlBackgroundColor))
+    }
+}
+
+@MainActor
+struct TripChipView: View {
+    let trip: Trip
+    let isActive: Bool
+    let onSelect: @MainActor () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            Text(trip.displayName)
+                .font(.caption)
+                .fontWeight(isActive ? .semibold : .regular)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(isActive ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.1))
+                .foregroundColor(isActive ? .accentColor : .secondary)
+                .cornerRadius(12)
+        }
+        .buttonStyle(.plain)
     }
 }
 

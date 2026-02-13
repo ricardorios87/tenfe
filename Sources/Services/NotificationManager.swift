@@ -12,9 +12,18 @@ final class NotificationManager: NSObject {
     private var lastNotificationDate: Date?
     private var notificationsAvailable = false
 
-    // UserDefaults keys for persisting notification state across app restarts
-    private let lastWarningDateKey = "TenfeLastWarningDate"
-    private let lastTimeToLeaveDateKey = "TenfeLastTimeToLeaveDate"
+    // Current trip ID for namespaced keys
+    private var currentTripId: UUID?
+
+    private var lastWarningDateKey: String {
+        guard let id = currentTripId else { return "TenfeLastWarningDate" }
+        return "TenfeLastWarningDate_\(id)"
+    }
+
+    private var lastTimeToLeaveDateKey: String {
+        guard let id = currentTripId else { return "TenfeLastTimeToLeaveDate" }
+        return "TenfeLastTimeToLeaveDate_\(id)"
+    }
 
     override init() {
         super.init()
@@ -25,7 +34,6 @@ final class NotificationManager: NSObject {
         } else {
             print("Running without app bundle - notifications disabled")
         }
-        loadPersistedState()
     }
 
     private func loadPersistedState() {
@@ -77,9 +85,11 @@ final class NotificationManager: NSObject {
         }
     }
 
-    func startMonitoring(trainService: TrainService, settings: AppSettings) {
-        // Reset flags at start of new monitoring session
+    func startMonitoring(trip: Trip, trainService: TrainService) {
+        // Update current trip ID and reload persisted state
+        currentTripId = trip.id
         resetDailyFlags()
+        loadPersistedState()
 
         // Cancel existing task
         monitoringTask?.cancel()
@@ -87,22 +97,22 @@ final class NotificationManager: NSObject {
         // Check every minute for notification triggers using structured concurrency
         monitoringTask = Task { @MainActor in
             // Check immediately
-            await checkAndSendNotifications(trainService: trainService, settings: settings)
+            await checkAndSendNotifications(trip: trip, trainService: trainService)
 
             // Then check every minute
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
                 guard !Task.isCancelled else { break }
-                await checkAndSendNotifications(trainService: trainService, settings: settings)
+                await checkAndSendNotifications(trip: trip, trainService: trainService)
             }
         }
     }
 
-    private func checkAndSendNotifications(trainService: TrainService, settings: AppSettings) async {
+    private func checkAndSendNotifications(trip: Trip, trainService: TrainService) async {
         let now = Date()
 
         // Get today's leave time
-        guard let todayLeaveTime = combineDateWithTime(date: now, time: settings.leaveTime) else { return }
+        guard let todayLeaveTime = combineDateWithTime(date: now, time: trip.leaveTime) else { return }
 
         // Skip if leave time has passed by more than 1 hour
         if now > todayLeaveTime.addingTimeInterval(3600) {
@@ -114,34 +124,34 @@ final class NotificationManager: NSObject {
         let minutesUntilLeave = Int(timeUntilLeave / 60)
 
         // 15-minute warning
-        if settings.enable15MinWarning && !hasShown15MinWarning && minutesUntilLeave <= 15 && minutesUntilLeave > 10 {
-            sendWarningNotification(trainService: trainService, settings: settings)
+        if trip.enable15MinWarning && !hasShown15MinWarning && minutesUntilLeave <= 15 && minutesUntilLeave > 10 {
+            sendWarningNotification(trip: trip, trainService: trainService)
             hasShown15MinWarning = true
             UserDefaults.standard.set(Date(), forKey: lastWarningDateKey)
         }
 
         // Time to leave notification (accounting for walk time)
-        let walkTime = TimeInterval(settings.walkTimeMinutes * 60)
-        let optimalLeaveTime = getOptimalDepartureTime(trainService: trainService, settings: settings)
+        let walkTime = TimeInterval(trip.walkTimeMinutes * 60)
+        let optimalLeaveTime = getOptimalDepartureTime(trip: trip, trainService: trainService)
 
         if let optimalLeaveTime = optimalLeaveTime {
             let timeToLeaveNow = optimalLeaveTime.addingTimeInterval(-walkTime - 180) // 3 min buffer
             let minutesUntilOptimalLeave = Int(timeToLeaveNow.timeIntervalSince(now) / 60)
 
-            if settings.enableTimeToLeaveAlert && !hasShownTimeToLeave && minutesUntilOptimalLeave <= 0 && minutesUntilOptimalLeave > -5 {
-                sendTimeToLeaveNotification(trainService: trainService, settings: settings, targetTrain: optimalLeaveTime)
+            if trip.enableTimeToLeaveAlert && !hasShownTimeToLeave && minutesUntilOptimalLeave <= 0 && minutesUntilOptimalLeave > -5 {
+                sendTimeToLeaveNotification(trip: trip, trainService: trainService, targetTrain: optimalLeaveTime)
                 hasShownTimeToLeave = true
                 UserDefaults.standard.set(Date(), forKey: lastTimeToLeaveDateKey)
             }
         }
     }
 
-    private func sendWarningNotification(trainService: TrainService, settings: AppSettings) {
+    private func sendWarningNotification(trip: Trip, trainService: TrainService) {
         guard notificationsAvailable else { return }
 
         let content = UNMutableNotificationContent()
         content.title = "🚂 Tenfe"
-        content.subtitle = "Leaving for \(settings.route.destination) soon!"
+        content.subtitle = "Leaving for \(trip.route.destination) soon!"
 
         let nextTrains = trainService.nextTrains.prefix(3)
         let trainTimes = nextTrains.map { $0.departureTimeString }.joined(separator: ", ")
@@ -152,7 +162,7 @@ final class NotificationManager: NSObject {
         UNUserNotificationCenter.current().add(request)
     }
 
-    private func sendTimeToLeaveNotification(trainService: TrainService, settings: AppSettings, targetTrain: Date) {
+    private func sendTimeToLeaveNotification(trip: Trip, trainService: TrainService, targetTrain: Date) {
         guard notificationsAvailable else { return }
 
         let content = UNMutableNotificationContent()
@@ -164,20 +174,20 @@ final class NotificationManager: NSObject {
         let trainTime = formatter.string(from: targetTrain)
 
         let minutesUntilTrain = Int(targetTrain.timeIntervalSince(Date()) / 60)
-        content.body = "Train to \(settings.route.destination) departs at \(trainTime) (in \(minutesUntilTrain) minutes)"
+        content.body = "Train to \(trip.route.destination) departs at \(trainTime) (in \(minutesUntilTrain) minutes)"
         content.sound = .default
 
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }
 
-    private func getOptimalDepartureTime(trainService: TrainService, settings: AppSettings) -> Date? {
+    private func getOptimalDepartureTime(trip: Trip, trainService: TrainService) -> Date? {
         // Find the best train based on leave time and walk time
-        guard let todayLeaveTime = combineDateWithTime(date: Date(), time: settings.leaveTime) else {
+        guard let todayLeaveTime = combineDateWithTime(date: Date(), time: trip.leaveTime) else {
             return nil
         }
 
-        let arrivalAtStation = todayLeaveTime.addingTimeInterval(TimeInterval(settings.walkTimeMinutes * 60))
+        let arrivalAtStation = todayLeaveTime.addingTimeInterval(TimeInterval(trip.walkTimeMinutes * 60))
         return trainService.getNextTrainAfter(date: arrivalAtStation)?.departureTime
     }
 

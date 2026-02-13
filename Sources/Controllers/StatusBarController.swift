@@ -48,6 +48,20 @@ final class StatusBarController {
             rootView: StatusBarPopupView(
                 trainService: trainService,
                 settingsManager: settingsManager,
+                onTripSelected: { [weak self] tripId in
+                    guard let self = self else { return }
+                    self.settingsManager.setActiveTrip(id: tripId)
+                    // Immediately reload trains for the new route
+                    if let trip = self.settingsManager.settings.activeTrip {
+                        Task { @MainActor in
+                            await self.trainService.setRoute(trip.route)
+                            self.notificationManager.startMonitoring(
+                                trip: trip,
+                                trainService: self.trainService
+                            )
+                        }
+                    }
+                },
                 onSettingsClick: { [weak self] in
                     self?.openSettings()
                 },
@@ -205,10 +219,12 @@ final class StatusBarController {
                 Task { @MainActor in
                     guard let self = self else { return }
                     await self.trainService.setRoute(self.settingsManager.settings.route)
-                    self.notificationManager.startMonitoring(
-                        trainService: self.trainService,
-                        settings: self.settingsManager.settings
-                    )
+                    if let activeTrip = self.settingsManager.settings.activeTrip {
+                        self.notificationManager.startMonitoring(
+                            trip: activeTrip,
+                            trainService: self.trainService
+                        )
+                    }
                 }
             }
         )
@@ -232,11 +248,13 @@ final class StatusBarController {
         Task { @MainActor in
             await trainService.setRoute(settingsManager.settings.route)
 
-            // Start notification monitoring based on settings
-            notificationManager.startMonitoring(
-                trainService: trainService,
-                settings: settingsManager.settings
-            )
+            // Start notification monitoring based on active trip
+            if let activeTrip = settingsManager.settings.activeTrip {
+                notificationManager.startMonitoring(
+                    trip: activeTrip,
+                    trainService: trainService
+                )
+            }
         }
 
         // Refresh trains periodically (every 5 minutes)
@@ -252,10 +270,12 @@ final class StatusBarController {
         settingsObserverTask = Task { @MainActor in
             for await newSettings in observeSettings() {
                 await trainService.setRoute(newSettings.route)
-                notificationManager.startMonitoring(
-                    trainService: trainService,
-                    settings: newSettings
-                )
+                if let activeTrip = newSettings.activeTrip {
+                    notificationManager.startMonitoring(
+                        trip: activeTrip,
+                        trainService: trainService
+                    )
+                }
             }
         }
     }
@@ -273,7 +293,9 @@ final class StatusBarController {
                        currentSettings.route.destination != lastSettings.route.destination ||
                        currentSettings.walkTimeMinutes != lastSettings.walkTimeMinutes ||
                        currentSettings.enable15MinWarning != lastSettings.enable15MinWarning ||
-                       currentSettings.enableTimeToLeaveAlert != lastSettings.enableTimeToLeaveAlert {
+                       currentSettings.enableTimeToLeaveAlert != lastSettings.enableTimeToLeaveAlert ||
+                       currentSettings.activeTripId != lastSettings.activeTripId ||
+                       currentSettings.trips.count != lastSettings.trips.count {
                         continuation.yield(currentSettings)
                         lastSettings = currentSettings
                     }
