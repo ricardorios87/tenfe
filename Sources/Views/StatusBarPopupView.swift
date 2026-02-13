@@ -104,12 +104,35 @@ struct TrainRowView: View {
     var body: some View {
         HStack {
             Image(systemName: "tram.fill")
-                .foregroundColor(.accentColor)
+                .foregroundColor(train.isCancelled ? .gray : .accentColor)
                 .frame(width: 20)
 
-            Text(train.departureTimeString)
-                .font(.system(.body, design: .monospaced))
-                .fontWeight(.medium)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Text(train.departureTimeString)
+                        .font(.system(.body, design: .monospaced))
+                        .fontWeight(.medium)
+                        .strikethrough(train.isCancelled)
+                        .foregroundColor(train.isCancelled ? .secondary : .primary)
+
+                    if train.isDelayed, let delay = train.delayString {
+                        Text(delay)
+                            .font(.system(.caption2, design: .monospaced))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.orange)
+                            .cornerRadius(3)
+                    }
+                }
+
+                if train.isDelayed {
+                    Text("Scheduled \(train.scheduledDepartureTimeString)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
 
             Spacer()
 
@@ -121,9 +144,10 @@ struct TrainRowView: View {
                 .cornerRadius(4)
 
             Text(train.timeUntilDeparture)
-                .foregroundColor(.secondary)
-                .frame(width: 70, alignment: .trailing)
+                .foregroundColor(train.isCancelled ? .red : .secondary)
+                .frame(width: 80, alignment: .trailing)
         }
         .padding(.vertical, 4)
+        .opacity(train.isCancelled ? 0.7 : 1.0)
     }
 }
